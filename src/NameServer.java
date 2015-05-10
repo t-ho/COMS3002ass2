@@ -1,15 +1,12 @@
 import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,7 +58,7 @@ public class NameServer {
 		try {
 			// open selector
 			selector = Selector.open();
-			// open socket channel
+			// open datagram channel
 			datagramChannel = DatagramChannel.open();
 			// set the socket associated with this channel
 			datagramSocket = datagramChannel.socket();
@@ -93,33 +90,15 @@ public class NameServer {
 		try {
 			while (selector.select() > 0) {
 				for (SelectionKey key : selector.selectedKeys()) {
-					// test whether this key's channel is ready to accept a new socket connection
-					if (key.isAcceptable()) {
-						// accept the connection
-						ServerSocketChannel server = (ServerSocketChannel) key.channel();
-						SocketChannel sc = server.accept();
-						if (sc == null)
-							continue;
-						System.out.println("Connection accepted from: " + sc.getRemoteAddress());
-						// set blocking mode of the channel
-						sc.configureBlocking(false);
-						// allocate buffer
-						ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
-						// set register status to READ
-						sc.register(selector, SelectionKey.OP_READ, buffer);
-					}
 					// test whether this key's channel is ready for reading from Client
-					else if (key.isReadable()) {
+					if (key.isReadable()) {
 						// get allocated buffer with size BUFFER_SIZE
 						ByteBuffer readBuffer = (ByteBuffer) key.attachment();
 						DatagramChannel dc = (DatagramChannel) key.channel();
 						SocketAddress sa = dc.receive(readBuffer);
 						readBuffer.flip();
-						String message = null;
-						int typeCommand = 0;
-
-						typeCommand = readBuffer.getInt();
-						message = Charset.forName("UTF-8").decode(readBuffer).toString();
+						int typeCommand = readBuffer.getInt();
+						String message = Charset.forName("UTF-8").decode(readBuffer).toString();
 						readBuffer.clear();
 
 						// react by Client's message
@@ -169,6 +148,7 @@ public class NameServer {
 						}
 						readBuffer.putInt(result);
 						readBuffer.put(Charset.forName("UTF-8").encode(message));
+						readBuffer.flip();
 						List<Object> objList = new ArrayList<Object>();
 						objList.add(sa);
 						objList.add(readBuffer);
@@ -181,7 +161,6 @@ public class NameServer {
 						List<?> objList = (ArrayList<?>) key.attachment();
 						SocketAddress sa = (SocketAddress) objList.get(0);
 						ByteBuffer writeBuffer = (ByteBuffer) objList.get(1);
-						writeBuffer.flip();
 						dc.send(writeBuffer, sa);
 						writeBuffer.clear();
 						// set register status to READ

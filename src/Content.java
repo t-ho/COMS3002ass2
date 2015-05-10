@@ -1,17 +1,23 @@
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
+
 
 
 /**
@@ -22,7 +28,7 @@ import java.util.List;
  * @author Minh Toan HO - 43129560
  *
  */
-public class Bank {
+public class Content {
 
 	public final int BUFFER_SIZE = 1024;
 	public final int REGISTER = 1;
@@ -42,15 +48,18 @@ public class Bank {
 	public final long TIMEOUT = 1000;
 
 	// set Server parameters
-	private int bankPort = 22000; // default
+	private int contentPort = 23000; // default
 	private int nameServerPort = 21000; // default
 	private Selector selector = null;
 	private DatagramChannel datagramChannel = null;
 	private DatagramSocket datagramSocket = null;
+	private String contentFileName;
+	private List<ContentItem> items = new ArrayList<Content.ContentItem>();
 
-	public Bank(String[] args) {
+	public Content(String[] args) {
 
 		validateArguments(args);
+		items = buildItemList();
 		serverInit();
 		handleRequests();
 	}
@@ -59,26 +68,27 @@ public class Bank {
 	 * @param args
 	 */
 	public static void main(String[] args) {
-		new Bank(args);
+		new Content(args);
 	}
 
 	/** Validate arguments **/
 	private void validateArguments(String[] args) {
-		if(args.length != 2) {
-			System.err.print("Invalid command line arguments for Bank\n");
+		if(args.length != 3) {
+			System.err.print("Invalid command line arguments for Content\n");
 			System.exit(1);
 		}
 
 		try {
-			bankPort = Integer.parseInt(args[0]);
-			nameServerPort = Integer.parseInt(args[1]);
-			if (!validPort(bankPort) || !validPort(nameServerPort)){
-				System.err.print("Invalid command line arguments for Bank\n");
+			contentPort = Integer.parseInt(args[0]);
+			contentFileName = args[1];
+			nameServerPort = Integer.parseInt(args[2]);
+			if (!validPort(contentPort) || !validPort(nameServerPort)){
+				System.err.print("Invalid command line arguments for Content\n");
 				System.exit(1);
 			}
 		}
 		catch (NumberFormatException e){
-			System.err.println("Invalid command line arguments for Bank\n");
+			System.err.println("Invalid command line arguments for Content\n");
 			System.exit(1);
 		}
 	}
@@ -109,18 +119,18 @@ public class Bank {
 
 		try {
 			// bind port
-			datagramSocket.bind(new InetSocketAddress(bankPort));
+			datagramSocket.bind(new InetSocketAddress(contentPort));
 		} catch (IOException e) {
-			System.err.print("Bank unable to listen on given port\n");
+			System.err.print("Content unable to listen on given port\n");
 			System.exit(1);
 		}
 		try {
 			ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
 			// registers this channel with the given selector, returning a selection key
 			datagramChannel.register(selector, SelectionKey.OP_READ, buffer);
-			// registers Bank server to NameServer
+			// register Content server with NameServer
 			register();
-			System.err.print("Bank waiting for incoming connections\n");
+			System.err.print("Content waiting for incoming connections\n");
 		} catch (ClosedChannelException e) {
 			e.printStackTrace();
 		}
@@ -142,20 +152,19 @@ public class Bank {
 						String message = Charset.forName("UTF-8").decode(readBuffer).toString();
 						readBuffer.clear();
 
-						int result = NOT_OK;
-						// validate transaction request
-						if(typeCommand == VALIDATE_TRANSACTION) {
-							/* Message format: itemID + "\n" + itemPrice + "\n" + creditCardNumber */
-							String[] serverInfo = message.split("\n");
-							long itemID = Long.parseLong(serverInfo[0]);
-							if(itemID % 2 == 1) { // itemID is odd
-								result = OK;
-								message = "";
-								System.out.println(itemID + " " + "OK");
-							} else { // itemID is even
-								result = NOT_OK;
-								message = "";
-								System.out.println(itemID + " " + "NOT OK");
+						int result = FAIL;
+						// content request
+						if(typeCommand == CONTENT_REQUEST) {
+							/* Message format: itemID*/
+							long itemID = Long.parseLong(message);
+							message = "";
+							for(int i = 0; i < items.size(); i++) {
+								if(items.get(i).getID() == itemID) {
+									/* Form message:
+									 * message format: itemID + "\n" + content*/
+									message = itemID + "\n" + items.get(i).getContent().toString();
+									result = SUCCESS;
+								}
 							}
 							readBuffer.putInt(result);
 							readBuffer.put(Charset.forName("UTF-8").encode(message));
@@ -202,7 +211,7 @@ public class Bank {
 		}
 	}
 
-	/** Register Bank server with NameServer **/
+	/** Register Content server with NameServer **/
 	private void register() {
 		try {
 			// construct datagram socket
@@ -214,7 +223,7 @@ public class Bank {
 			ByteBuffer receiveBuffer = ByteBuffer.allocate(BUFFER_SIZE);
 			byte[] sendData = new byte[BUFFER_SIZE];
 			/* Message format: serverName + "\n" + serverIP + "\n" + serverPort */
-			String command = "Bank" + "\n" + InetAddress.getLocalHost().getHostAddress() + "\n" + bankPort + "\n";
+			String command = "Content" + "\n" + InetAddress.getLocalHost().getHostAddress() + "\n" + contentPort + "\n";
 			sendBuffer.putInt(REGISTER);
 			sendBuffer.put(Charset.forName("UTF-8").encode(command));
 			sendBuffer.flip();
@@ -228,7 +237,7 @@ public class Bank {
 			if(result == SUCCESS) {
 				System.out.println(message);
 			} else if(result == FAIL) {
-				System.err.print("Bank registration to NameServer failed\n");
+				System.err.print("Content registration with NameServer failed\n");
 				System.exit(1);
 			}
 			// close up
@@ -283,5 +292,47 @@ public class Bank {
 			}
 		}
 		return receivePacket;
+	}
+	/** Read stock-file file into an internal data structure (Arraylist) **/
+	private List<ContentItem> buildItemList() {
+		List<ContentItem> itemList = new ArrayList<ContentItem>();
+		try {
+			BufferedReader reader = new BufferedReader(new FileReader(contentFileName));
+			String line = null;
+			while ((line = reader.readLine()) != null) {
+				String[] columns = line.split(" ");
+				long id = Long.parseLong(columns[0]);
+				String content = columns[1];
+				itemList.add(new ContentItem(id, content));
+			}
+			reader.close();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return itemList;
+	}
+
+	public class ContentItem {
+		private long ID;
+		private String content;
+
+		public ContentItem(long ID, String content) {
+			this.ID = ID;
+			this.content = content;
+		}
+
+		public long getID() {
+			return ID;
+		}
+		public void setID(long iD) {
+			ID = iD;
+		}
+		public String getContent() {
+			return content;
+		}
+		public void setContent(String content) {
+			this.content = content;
+		}
+
 	}
 }

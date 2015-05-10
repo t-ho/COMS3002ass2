@@ -118,14 +118,15 @@ public class NameServer {
 							if(isFound == true) { // server's name has already registered
 								result = FAIL;
 								message = "FAIL";
+								System.out.println("Registration failed: " + serverInfo[0] + " had already registered.");
 							} else { // isFound == false
 								serverList.add(new Server(serverInfo[0], serverInfo[1], 
 										Integer.parseInt(serverInfo[2])));
 								result = SUCCESS;
 								message = "Registration with NameServer succeeded.";
+								System.out.println("Registered: " + serverInfo[0] + " " +
+										serverInfo[1] + " " + serverInfo[2]);
 							}
-							System.out.println("Registered: " + serverInfo[0] + " " +
-									serverInfo[1] + " " + serverInfo[2]);
 						} else if(typeCommand == LOOKUP ) { // lookup queries
 							boolean isFound = false;
 							String name = message;

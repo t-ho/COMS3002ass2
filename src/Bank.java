@@ -206,7 +206,6 @@ public class Bank {
 
 	/** Register Bank server with NameServer **/
 	private void register() {
-		long startTime = 0;
 		try {
 			// construct datagram socket
 			DatagramSocket clientSocket = new DatagramSocket();
@@ -216,7 +215,6 @@ public class Bank {
 			ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
 			ByteBuffer receiveBuffer = ByteBuffer.allocate(BUFFER_SIZE);
 			byte[] sendData = new byte[BUFFER_SIZE];
-			byte[] receiveData = new byte[BUFFER_SIZE];
 			/* Message format: serverName + "\n" + serverIP + "\n" + serverPort */
 			String command = "Bank" + "\n" + InetAddress.getLocalHost().getHostAddress() + "\n" + bankPort + "\n";
 			sendBuffer.putInt(REGISTER);
@@ -225,31 +223,7 @@ public class Bank {
 			sendData = sendBuffer.array();
 			// send the message to server
 			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, nameServerPort);
-			DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-			Thread thread = new Thread( new Runnable() {
-				@Override
-				public void run() {
-					try {
-						// receive reply message from server
-						clientSocket.receive(receivePacket);
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-				}
-			});
-			
-			// send and simulate packet loss
-			simulatePacketLoss(clientSocket, sendPacket, "Message is sent to NameServer.");
-			startTime = System.currentTimeMillis();
-			thread.start();
-			while(thread.isAlive()) {
-				if(System.currentTimeMillis() - startTime > TIMEOUT && thread.isAlive()) {
-					System.out.println("Timeout expired");
-					// send and simulate packet loss
-					simulatePacketLoss(clientSocket, sendPacket, "Message is retransmited to NameServer");
-					startTime = System.currentTimeMillis();
-				}
-			}
+			DatagramPacket receivePacket = implementReliability(clientSocket, sendPacket);
 			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
 			int result = receiveBuffer.getInt();
 			String message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
@@ -275,5 +249,41 @@ public class Bank {
 			ds.send(dp);
 		}
 		System.out.println(message);
+	}
+
+	/** Implements communication reliability. The sender process set a timeout for an ACK
+	 * arrival and retransmit the message if the timeout expires.
+	 * @throws IOException   
+	 * @return return packet received from server */
+	private DatagramPacket implementReliability(DatagramSocket clientSocket, 
+			DatagramPacket sendPacket) throws IOException {
+		long startTime = 0;
+		byte[] receiveData = new byte[BUFFER_SIZE];
+		DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+		Thread thread = new Thread( new Runnable() {
+			@Override
+			public void run() {
+				try {
+					// receive reply message from server
+					clientSocket.receive(receivePacket);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		});
+
+		// send and simulate packet loss
+		simulatePacketLoss(clientSocket, sendPacket, "Message is sent to NameServer.");
+		startTime = System.currentTimeMillis();
+		thread.start();
+		while(thread.isAlive()) {
+			if(System.currentTimeMillis() - startTime > TIMEOUT && thread.isAlive()) {
+				System.out.println("Timeout expired");
+				// send and simulate packet loss
+				simulatePacketLoss(clientSocket, sendPacket, "Message is retransmited to NameServer");
+				startTime = System.currentTimeMillis();
+			}
+		}
+		return receivePacket;
 	}
 }

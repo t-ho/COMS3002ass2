@@ -118,7 +118,7 @@ public class NameServer {
 							if(isFound == true) { // server's name has already registered
 								result = FAIL;
 								message = "FAIL";
-								System.out.println("Registration failed: " + serverInfo[0] + " had already registered.");
+								System.out.println("Registration failed: " + serverInfo[0] + " server had already registered.");
 							} else { // isFound == false
 								serverList.add(new Server(serverInfo[0], serverInfo[1], 
 										Integer.parseInt(serverInfo[2])));
@@ -129,7 +129,8 @@ public class NameServer {
 							}
 						} else if(typeCommand == LOOKUP ) { // lookup queries
 							boolean isFound = false;
-							String name = message;
+							String[] serverInfo = message.split("\n");
+							String name = serverInfo[0];
 							result = FAIL;
 							for(int i = 0; i < serverList.size(); i++) {
 								if(serverList.get(i).getServerName().equals(name)) {
@@ -137,7 +138,7 @@ public class NameServer {
 									result = SUCCESS;
 									message = serverList.get(i).getServerName() + "\n" +
 											serverList.get(i).getIPAddress() + "\n" +
-											serverList.get(i).getPort();
+											serverList.get(i).getPort() + "\n";
 									break;
 								}
 							}

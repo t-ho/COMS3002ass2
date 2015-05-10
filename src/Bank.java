@@ -210,18 +210,11 @@ public class Bank {
 			// set server's ip address
 			InetAddress IPAddress = InetAddress.getByName(NAMESERVER_IP);
 			// set buffers
-			ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
 			ByteBuffer receiveBuffer = ByteBuffer.allocate(BUFFER_SIZE);
-			byte[] sendData = new byte[BUFFER_SIZE];
 			/* Message format: serverName + "\n" + serverIP + "\n" + serverPort */
 			String command = "Bank" + "\n" + InetAddress.getLocalHost().getHostAddress() + "\n" + bankPort + "\n";
-			sendBuffer.putInt(REGISTER);
-			sendBuffer.put(Charset.forName("UTF-8").encode(command));
-			sendBuffer.flip();
-			sendData = sendBuffer.array();
-			// send the message to server
-			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, nameServerPort);
-			DatagramPacket receivePacket = implementReliability(clientSocket, sendPacket);
+			DatagramPacket sendPacket = createSendPacket(IPAddress, REGISTER, command);
+			DatagramPacket receivePacket = implementReliability(clientSocket, sendPacket, "Registration's info");
 			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
 			int result = receiveBuffer.getInt();
 			String message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
@@ -243,18 +236,19 @@ public class Bank {
 	 * @throws IOException */
 	private void simulatePacketLoss(DatagramSocket ds, DatagramPacket dp, String message) throws IOException {
 		double random = Math.random();
+		System.out.println(message);
 		if(random >= 0.5) {
 			ds.send(dp);
 		}
-		System.out.println(message);
 	}
+
 
 	/** Implements communication reliability. The sender process set a timeout for an ACK
 	 * arrival and retransmit the message if the timeout expires.
 	 * @throws IOException   
 	 * @return return packet received from server */
 	private DatagramPacket implementReliability(DatagramSocket clientSocket, 
-			DatagramPacket sendPacket) throws IOException {
+			DatagramPacket sendPacket, String message) throws IOException {
 		long startTime = 0;
 		byte[] receiveData = new byte[BUFFER_SIZE];
 		DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
@@ -271,17 +265,30 @@ public class Bank {
 		});
 
 		// send and simulate packet loss
-		simulatePacketLoss(clientSocket, sendPacket, "Message is sent to NameServer.");
+		simulatePacketLoss(clientSocket, sendPacket, message + " is sent to NameServer.");
 		startTime = System.currentTimeMillis();
 		thread.start();
 		while(thread.isAlive()) {
 			if(System.currentTimeMillis() - startTime > TIMEOUT && thread.isAlive()) {
 				System.out.println("Timeout expired");
 				// send and simulate packet loss
-				simulatePacketLoss(clientSocket, sendPacket, "Message is retransmited to NameServer");
+				simulatePacketLoss(clientSocket, sendPacket, message + " is retransmited to NameServer");
 				startTime = System.currentTimeMillis();
 			}
 		}
 		return receivePacket;
+	}
+	
+	/** Create a send packet */
+	private DatagramPacket createSendPacket(InetAddress iPAddress, int typeCommand, String command) {
+			byte[] sendData = new byte[BUFFER_SIZE];
+			ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
+			sendBuffer.putInt(typeCommand);
+			sendBuffer.put(Charset.forName("UTF-8").encode(command));
+			sendBuffer.flip();
+			sendData = sendBuffer.array();
+			// send the message to server
+			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, iPAddress, nameServerPort);
+			return sendPacket;
 	}
 }

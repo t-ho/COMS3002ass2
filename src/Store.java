@@ -224,7 +224,7 @@ public class Store {
 						SocketAddress sa = dc.receive(readBuffer);
 						readBuffer.flip();
 						int typeCommand = readBuffer.getInt();
-						message = Charset.forName("UFT-8").decode(readBuffer).toString();
+						message = Charset.forName("UTF-8").decode(readBuffer).toString();
 						readBuffer.clear();
 
 							// request for getting list of items

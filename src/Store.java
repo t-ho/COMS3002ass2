@@ -37,7 +37,7 @@ public class Store {
 	public final int BUY_REQUEST = 12;
 
 	public final String NAMESERVER_IP = "127.0.0.1";
-	public final long TIMEOUT = 1000;
+	public final long TIMEOUT = 500;
 
 	int storePort = 24000; // default value
 	int nameServerPort = 21000; // default value
@@ -79,7 +79,20 @@ public class Store {
 			e.printStackTrace();
 		}
 		serverInit();
+		// Print the list of items
+		printListItems(items);
 		handleRequests();
+	}
+
+	/** Print the list of items */
+	private void printListItems(List<Item> items) {
+		String str = "";
+		for(int i = 0; i < items.size(); i++) {
+			str = str + (i + 1) + ". " + items.get(i).getID() + " " +
+					items.get(i).getPrice() + "\n";
+		}
+		System.out.println("<<< List of items: >>>");
+		System.out.println(str);
 	}
 
 	/** Send a request to Bank server to check whether transaction is OK or NOT.
@@ -97,7 +110,6 @@ public class Store {
 			result = receiveBuffer.getInt();
 			message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -227,42 +239,43 @@ public class Store {
 						message = Charset.forName("UTF-8").decode(readBuffer).toString();
 						readBuffer.clear();
 
-							// request for getting list of items
-							if(typeCommand == LIST_ITEMS_REQUEST) {
-								result = LIST_ITEMS_REQUEST;
-								message = "";
-								for(int i = 0; i < items.size(); i++) {
-									message = message + (i + 1) + ". " + items.get(i).getID() + " " +
-											items.get(i).getPrice() + "\n";
-								}
-
-							} else if(typeCommand == BUY_REQUEST ) { // buy request
-								/*message format: orderNumber + "\n" + creditCardNumber*/
-								String[] orderInfo = message.split("\n");
-								int orderNumber = Integer.parseInt(orderInfo[0]);
-								String creditCardNumber = orderInfo[1];
-								int index = orderNumber - 1;
-								/* The results are stored in the global variables "result" and "message" */
-								getBankApproval(items.get(index), creditCardNumber);
-								if(result == OK) {
-									getContent(items.get(index));
-									/* message get from Content server: itemID + "\n" + content */
-									/* add itemPrice to message */
-									message = message + "\n" + items.get(index).getPrice() + "\n";
-									result = SUCCESS;
-								} else if(result == NOT_OK) {
-									message = items.get(index).getID() + "\n" + "transaction aborted";
-									result = FAIL;
-								}
+						// request for getting list of items
+						if(typeCommand == LIST_ITEMS_REQUEST) {
+							result = LIST_ITEMS_REQUEST;
+							message = "";
+							for(int i = 0; i < items.size(); i++) {
+								message = message + (i + 1) + ". " + items.get(i).getID() + " " +
+										items.get(i).getPrice() + "\n";
 							}
-							readBuffer.putInt(result);
-							readBuffer.put(Charset.forName("UTF-8").encode(message));
-							readBuffer.flip();
-							List<Object> objList = new ArrayList<Object>();
-							objList.add(sa);
-							objList.add(readBuffer);
-							// set register status to WRITE
-							dc.register(key.selector(), SelectionKey.OP_WRITE, objList);
+
+						} else if(typeCommand == BUY_REQUEST ) { // buy request
+							/*message format: orderNumber + "\n" + creditCardNumber*/
+							String[] orderInfo = message.split("\n");
+							int orderNumber = Integer.parseInt(orderInfo[0]);
+							String creditCardNumber = orderInfo[1];
+							int index = orderNumber - 1;
+							/* The results are stored in the global variables "result" and "message" */
+							getBankApproval(items.get(index), creditCardNumber);
+							if(result == OK) {
+								getContent(items.get(index));
+								/* message get from Content server: itemID + "\n" + content + "\n" */
+								/* add itemPrice to message */
+								String[] temp = message.split("\n");
+								message = temp[0] + "\n" + temp[1] + "\n" + items.get(index).getPrice() + "\n";
+								result = SUCCESS;
+							} else if(result == NOT_OK) {
+								message = items.get(index).getID() + "\n" + "transaction aborted";
+								result = FAIL;
+							}
+						}
+						readBuffer.putInt(result);
+						readBuffer.put(Charset.forName("UTF-8").encode(message));
+						readBuffer.flip();
+						List<Object> objList = new ArrayList<Object>();
+						objList.add(sa);
+						objList.add(readBuffer);
+						// set register status to WRITE
+						dc.register(key.selector(), SelectionKey.OP_WRITE, objList);
 					}
 					// test whether this key's channel is ready for sending to Client
 					else if (key.isWritable()) {
@@ -274,6 +287,7 @@ public class Store {
 						writeBuffer.clear();
 						// set register status to READ
 						dc.register(selector, SelectionKey.OP_READ, writeBuffer);
+						//printListItems(items);
 					}
 				}
 				if (selector.isOpen()) {

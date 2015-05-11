@@ -153,13 +153,14 @@ public class Content {
 						// content request
 						if(typeCommand == CONTENT_REQUEST) {
 							/* Message format: itemID*/
-							long itemID = Long.parseLong(message);
+							String[] temp = message.split("\n");
+							long itemID = Long.parseLong(temp[0]);
 							message = "";
 							for(int i = 0; i < items.size(); i++) {
 								if(items.get(i).getID() == itemID) {
 									/* Form message:
 									 * message format: itemID + "\n" + content*/
-									message = itemID + "\n" + items.get(i).getContent().toString();
+									message = itemID + "\n" + items.get(i).getContent().toString() + "\n";
 									result = SUCCESS;
 								}
 							}

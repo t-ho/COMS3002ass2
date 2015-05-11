@@ -80,6 +80,7 @@ public class Client {
 			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
 			result = receiveBuffer.getInt();
 			String message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
+			receiveBuffer.clear();
 
 			if(typeCommand == LIST_ITEMS_REQUEST) {
 				System.out.println(message);
@@ -171,7 +172,7 @@ public class Client {
 	 * @throws IOException */
 	private void simulatePacketLoss(DatagramSocket ds, DatagramPacket dp, String message) throws IOException {
 		double random = Math.random();
-		System.out.println(message);
+		//System.out.println(message);
 		if(random >= 0.5) {
 			ds.send(dp);
 		}
@@ -205,7 +206,7 @@ public class Client {
 		thread.start();
 		while(thread.isAlive()) {
 			if(System.currentTimeMillis() - startTime > TIMEOUT && thread.isAlive()) {
-				System.out.println("Timeout expired");
+				//System.out.println("Timeout expired");
 				// send and simulate packet loss
 				simulatePacketLoss(clientSocket, sendPacket, "RETRANSMIT: " + message);
 				startTime = System.currentTimeMillis();

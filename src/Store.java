@@ -5,15 +5,12 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,8 +42,8 @@ public class Store {
 	int storePort = 24000; // default value
 	int nameServerPort = 21000; // default value
 	private Selector selector = null;
-	private ServerSocketChannel serverSocketChannel = null;
-	private ServerSocket serverSocket = null;
+	private DatagramChannel datagramChannel = null;
+	private DatagramSocket datagramSocket = null;
 	String stockFileName;
 	int bankPort;
 	int contentPort;
@@ -54,11 +51,11 @@ public class Store {
 	String contentIP;
 	List<Item> items = new ArrayList<Item>();
 
-	DatagramChannel bankChannel;
-	Selector bankSelector;
+	DatagramSocket bankSocket;
+	InetAddress bankIPAddress;
 
-	DatagramChannel contentChannel;
-	Selector contentSelector;
+	DatagramSocket contentSocket;
+	InetAddress contentIPAddress;
 
 	int result;
 	String message;
@@ -73,102 +70,34 @@ public class Store {
 		 * then get Bank and Content servers' info */
 		register();
 		items = buildItemList();
-		connectBankServer();
-		connectContentServer();
+		try {
+			bankSocket = new DatagramSocket();
+			bankIPAddress = InetAddress.getByName(bankIP);
+			contentSocket = new DatagramSocket();
+			contentIPAddress = InetAddress.getByName(contentIP);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 		serverInit();
 		handleRequests();
-	}
-	/** Connect to Bank server **/
-	private void connectBankServer() {
-		try {
-			// open socket channel
-			bankChannel = DatagramChannel.open();
-			// set Blocking mode to non-blocking
-			bankChannel.configureBlocking(false);
-			// set Server info
-			SocketAddress target = new InetSocketAddress(bankIP, bankPort);
-			// open selector
-			bankSelector = Selector.open();
-			// connect to Server
-			bankChannel.connect(target);
-			// registers this channel with the given selector, returning a selection key
-			bankChannel.register(bankSelector, SelectionKey.OP_WRITE); 
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
-	/** Connect to Content server **/
-	private void connectContentServer() {
-		try {
-			// open socket channel
-			contentChannel = DatagramChannel.open();
-			// set Blocking mode to non-blocking
-			contentChannel.configureBlocking(false);
-			// set Server info
-			SocketAddress target = new InetSocketAddress(contentIP, contentPort);
-			// open selector
-			contentSelector = Selector.open();
-			// connect to Server
-			contentChannel.connect(target);
-			// registers this channel with the given selector, returning a selection key
-			contentChannel.register(contentSelector, SelectionKey.OP_WRITE);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
 	}
 
 	/** Send a request to Bank server to check whether transaction is OK or NOT.
 	 * The results are stored in global variable "result" and "message"**/
 	private void getBankApproval(Item item, String creditCardNumber) {
 		try {
-			while (bankSelector.select() > 0) {
-				boolean isDone = false;
-				for (SelectionKey bankKey : bankSelector.selectedKeys()) {
-					if(bankKey.isWritable()) {
-						SocketChannel sc = (SocketChannel) bankKey.channel();
-						String command = "";
-						/* command format: itemID + "\n" + itemPrice + "\n" + creditCardNumber */
-						command = item.getID() + "\n" + item.getPrice() + "\n" + creditCardNumber;
-						writeCommand(VALIDATE_TRANSACTION, command, bankChannel);
-
-						// set register status to READ
-						sc.register(bankSelector, SelectionKey.OP_READ);
-					}else if(bankKey.isReadable()) {
-						// allocate a byte buffer with size 1024
-						ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
-						SocketChannel sc = (SocketChannel) bankKey.channel();
-						int readBytes = 0;
-						// try to read bytes from the channel into the buffer
-						try {
-							int ret = 0;
-							try {
-								while ((ret = sc.read(buffer)) > 0)
-									readBytes += ret;
-							} finally {
-								buffer.flip();
-							}
-							// finished reading, print to Client
-							if (readBytes > 0) {
-								result = buffer.getInt();
-								message = Charset.forName("UTF-8").decode(buffer).toString();
-								buffer = null;
-							}
-						} finally {
-							if (buffer != null)
-								buffer.clear();
-						}
-						// set register status to WRITE
-						sc.register(bankSelector, SelectionKey.OP_WRITE);
-						isDone = true;
-						break;
-					}
-				}
-				if(isDone == true) {
-					break;
-				}
-			}
+			// set buffer
+			ByteBuffer receiveBuffer = ByteBuffer.allocate(BUFFER_SIZE);
+			/* command format: itemID + "\n" + itemPrice + "\n" + creditCardNumber */
+			String command = item.getID() + "\n" + item.getPrice() + "\n" + creditCardNumber + "\n";
+			DatagramPacket sendPacket = createSendPacket(bankIPAddress, bankPort, VALIDATE_TRANSACTION, command);
+			DatagramPacket receivePacket = implementReliability(bankSocket, sendPacket, 
+					"Validation request is sent to Bank server.");
+			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
+			result = receiveBuffer.getInt();
+			message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
 		} catch (IOException e) {
+			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -177,52 +106,18 @@ public class Store {
 	 * The results are stored in global variable "result" and "message"**/
 	private void getContent(Item item) {
 		try {
-			while (contentSelector.select() > 0) {
-				boolean isDone = false;
-				for (SelectionKey contentKey : contentSelector.selectedKeys()) {
-					if(contentKey.isWritable()) {
-						SocketChannel sc = (SocketChannel) contentKey.channel();
-						String command = "";
-						/* command format: itemID */
-						command = item.getID() + "";
-						writeCommand(CONTENT_REQUEST, command, contentChannel);
-
-						// set register status to READ
-						sc.register(contentSelector, SelectionKey.OP_READ);
-					}else if(contentKey.isReadable()) {
-						// allocate a byte buffer with size 1024
-						ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
-						SocketChannel sc = (SocketChannel) contentKey.channel();
-						int readBytes = 0;
-						// try to read bytes from the channel into the buffer
-						try {
-							int ret = 0;
-							try {
-								while ((ret = sc.read(buffer)) > 0)
-									readBytes += ret;
-							} finally {
-								buffer.flip();
-							}
-							// finished reading
-							if (readBytes > 0) {
-								result = buffer.getInt();
-								message = Charset.forName("UTF-8").decode(buffer).toString();
-							}
-						} finally {
-							if (buffer != null)
-								buffer.clear();
-						}
-						// set register status to WRITE
-						sc.register(contentSelector, SelectionKey.OP_WRITE);
-						isDone = true;
-						break;
-					}
-				}
-				if(isDone == true) {
-					break;
-				}
-			}
+			// set buffer
+			ByteBuffer receiveBuffer = ByteBuffer.allocate(BUFFER_SIZE);
+			/* command format: itemID */
+			String command = item.getID() + "\n";
+			DatagramPacket sendPacket = createSendPacket(contentIPAddress, contentPort, CONTENT_REQUEST, command);
+			DatagramPacket receivePacket = implementReliability(contentSocket, sendPacket, 
+					"Content request is sent to Content server.");
+			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
+			result = receiveBuffer.getInt();
+			message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
 		} catch (IOException e) {
+			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -240,26 +135,27 @@ public class Store {
 		try {
 			// open selector
 			selector = Selector.open();
-			// open socket channel
-			serverSocketChannel = ServerSocketChannel.open();
+			// open datagram channel
+			datagramChannel = DatagramChannel.open();
 			// set the socket associated with this channel
-			serverSocket = serverSocketChannel.socket();
+			datagramSocket = datagramChannel.socket();
 			// set Blocking mode to non-blocking
-			serverSocketChannel.configureBlocking(false);
+			datagramChannel.configureBlocking(false);
 		} catch (IOException e1) {
 			e1.printStackTrace();
 		}
 
 		try {
 			// bind port
-			serverSocket.bind(new InetSocketAddress(storePort));
+			datagramSocket.bind(new InetSocketAddress(storePort));
 		} catch (IOException e) {
 			System.err.print("Store unable to listen on given port\n");
 			System.exit(1);
 		}
 		try {
+			ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
 			// registers this channel with the given selector, returning a selection key
-			serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+			datagramChannel.register(selector, SelectionKey.OP_READ, buffer);
 			System.err.print("Store waiting for incoming connections\n");
 		} catch (ClosedChannelException e) {
 			e.printStackTrace();
@@ -285,19 +181,6 @@ public class Store {
 		return itemList;
 	}
 
-	/** Write command to channel **/
-	private void writeCommand(int typeCommand, String command, SocketChannel channel) {
-		ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
-		buffer.putInt(typeCommand);
-		buffer.put(Charset.forName("UTF-8").encode(command));
-		buffer.flip();
-		// send to Server
-		try {
-			channel.write(buffer);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
 	/** Validate arguments **/
 	private void validateArguments(String[] args){
 		if(args.length != 3) {
@@ -333,52 +216,17 @@ public class Store {
 		try {
 			while (selector.select() > 0) {
 				for (SelectionKey key : selector.selectedKeys()) {
-					// test whether this key's channel is ready to accept a new socket connection
-					if (key.isAcceptable()) {
-						// accept the connection
-						ServerSocketChannel server = (ServerSocketChannel) key.channel();
-						SocketChannel sc = server.accept();
-						if (sc == null)
-							continue;
-						System.out.println("Connection accepted from: " + sc.getRemoteAddress());
-						// set blocking mode of the channel
-						sc.configureBlocking(false);
-						// allocate buffer
-						ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
-						// set register status to READ
-						sc.register(selector, SelectionKey.OP_READ, buffer);
-					}
 					// test whether this key's channel is ready for reading from Client
-					else if (key.isReadable()) {
+					if (key.isReadable()) {
 						// get allocated buffer with size BUFFER_SIZE
-						ByteBuffer buffer = (ByteBuffer) key.attachment();
-						SocketChannel sc = (SocketChannel) key.channel();
-						int readBytes = 0;
-						int typeCommand = 0;
+						ByteBuffer readBuffer = (ByteBuffer) key.attachment();
+						DatagramChannel dc = (DatagramChannel) key.channel();
+						SocketAddress sa = dc.receive(readBuffer);
+						readBuffer.flip();
+						int typeCommand = readBuffer.getInt();
+						message = Charset.forName("UFT-8").decode(readBuffer).toString();
+						readBuffer.clear();
 
-						// try to read bytes from the channel into the buffer
-						try {
-							int ret;
-							try {
-								while ((ret = sc.read(buffer)) > 0)
-									readBytes += ret;
-							} catch (Exception e) {
-								readBytes = 0;
-							} finally {
-								buffer.flip();
-							}
-							// finished reading, form message
-							if (readBytes > 0) {
-								typeCommand = buffer.getInt();
-								message = Charset.forName("UTF-8").decode(buffer).toString();
-							}
-						} finally {
-							if (buffer != null)
-								buffer.clear();
-						}
-
-						// react by Client's message
-						if (readBytes > 0) {
 							// request for getting list of items
 							if(typeCommand == LIST_ITEMS_REQUEST) {
 								result = LIST_ITEMS_REQUEST;
@@ -400,26 +248,32 @@ public class Store {
 									getContent(items.get(index));
 									/* message get from Content server: itemID + "\n" + content */
 									/* add itemPrice to message */
-									message = message + "\n" + items.get(index).getPrice();
+									message = message + "\n" + items.get(index).getPrice() + "\n";
 									result = SUCCESS;
 								} else if(result == NOT_OK) {
 									message = items.get(index).getID() + "\n" + "transaction aborted";
 									result = FAIL;
 								}
 							}
-							buffer.putInt(result);
-							buffer.put(Charset.forName("UTF-8").encode(message));
-							sc.register(key.selector(), SelectionKey.OP_WRITE, buffer);
-						}
+							readBuffer.putInt(result);
+							readBuffer.put(Charset.forName("UTF-8").encode(message));
+							readBuffer.flip();
+							List<Object> objList = new ArrayList<Object>();
+							objList.add(sa);
+							objList.add(readBuffer);
+							// set register status to WRITE
+							dc.register(key.selector(), SelectionKey.OP_WRITE, objList);
 					}
 					// test whether this key's channel is ready for sending to Client
 					else if (key.isWritable()) {
-						SocketChannel sc = (SocketChannel) key.channel();
-						ByteBuffer buffer = (ByteBuffer) key.attachment();
-						buffer.flip();
-						sc.write(buffer);
+						DatagramChannel dc = (DatagramChannel) key.channel();
+						List<?> objList = (ArrayList<?>) key.attachment();
+						SocketAddress sa = (SocketAddress) objList.get(0);
+						ByteBuffer writeBuffer = (ByteBuffer) objList.get(1);
+						dc.send(writeBuffer, sa);
+						writeBuffer.clear();
 						// set register status to READ
-						sc.register(key.selector(), SelectionKey.OP_READ, buffer);
+						dc.register(selector, SelectionKey.OP_READ, writeBuffer);
 					}
 				}
 				if (selector.isOpen()) {
@@ -433,13 +287,15 @@ public class Store {
 		} catch (IOException e) {
 			e.printStackTrace();
 		} finally {
-			if (serverSocketChannel != null) {
+			if (datagramChannel != null) {
 				try {
-					serverSocketChannel.close();
+					datagramChannel.close();
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
 			}
+			bankSocket.close();
+			contentSocket.close();
 		}
 	}
 
@@ -458,8 +314,9 @@ public class Store {
 			/* --------------Register with NameServer-------------- */
 			/* Message format: serverName + "\n" + serverIP + "\n" + serverPort */
 			String command = "Store" + "\n" + InetAddress.getLocalHost().getHostAddress() + "\n" + storePort + "\n";
-			DatagramPacket sendPacket = createSendPacket(IPAddress, REGISTER, command);
-			DatagramPacket receivePacket = implementReliability(clientSocket, sendPacket, "Registration's info");
+			DatagramPacket sendPacket = createSendPacket(IPAddress, nameServerPort, REGISTER, command);
+			DatagramPacket receivePacket = implementReliability(clientSocket, sendPacket, 
+					"Registration's info is sent to NameServer.");
 			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
 			int result = receiveBuffer.getInt();
 			String message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
@@ -472,8 +329,9 @@ public class Store {
 
 			/* --------------Get Bank server's info-------------- */
 			command = "Bank" + "\n";
-			sendPacket = createSendPacket(IPAddress, LOOKUP, command);
-			receivePacket = implementReliability(clientSocket, sendPacket, "Bank server's info request");
+			sendPacket = createSendPacket(IPAddress, nameServerPort, LOOKUP, command);
+			receivePacket = implementReliability(clientSocket, sendPacket, 
+					"Bank server's info request is sent to NameServer.");
 			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
 			result = receiveBuffer.getInt();
 			message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
@@ -489,8 +347,9 @@ public class Store {
 
 			/* --------------Get Content server's info-------------- */
 			command = "Content" + "\n";
-			sendPacket = createSendPacket(IPAddress, LOOKUP, command);
-			receivePacket = implementReliability(clientSocket, sendPacket, "Content server's info request");
+			sendPacket = createSendPacket(IPAddress, nameServerPort, LOOKUP, command);
+			receivePacket = implementReliability(clientSocket, sendPacket, 
+					"Content server's info request is sent to NameServer.");
 			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
 			result = receiveBuffer.getInt();
 			message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
@@ -544,14 +403,14 @@ public class Store {
 		});
 
 		// send and simulate packet loss
-		simulatePacketLoss(clientSocket, sendPacket, message + " is sent to NameServer.");
+		simulatePacketLoss(clientSocket, sendPacket, message);
 		startTime = System.currentTimeMillis();
 		thread.start();
 		while(thread.isAlive()) {
 			if(System.currentTimeMillis() - startTime > TIMEOUT && thread.isAlive()) {
 				System.out.println("Timeout expired");
 				// send and simulate packet loss
-				simulatePacketLoss(clientSocket, sendPacket, message + " is retransmited to NameServer");
+				simulatePacketLoss(clientSocket, sendPacket, "RETRANSMIT: " + message);
 				startTime = System.currentTimeMillis();
 			}
 		}
@@ -559,7 +418,7 @@ public class Store {
 	}
 
 	/** Create a send packet */
-	private DatagramPacket createSendPacket(InetAddress iPAddress, int typeCommand, String command) {
+	private DatagramPacket createSendPacket(InetAddress iPAddress, int port, int typeCommand, String command) {
 		byte[] sendData = new byte[BUFFER_SIZE];
 		ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
 		sendBuffer.putInt(typeCommand);
@@ -567,7 +426,7 @@ public class Store {
 		sendBuffer.flip();
 		sendData = sendBuffer.array();
 		// send the message to server
-		DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, iPAddress, nameServerPort);
+		DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, iPAddress, port);
 		return sendPacket;
 	}
 

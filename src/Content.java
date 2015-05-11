@@ -219,8 +219,9 @@ public class Content {
 			ByteBuffer receiveBuffer = ByteBuffer.allocate(BUFFER_SIZE);
 			/* Message format: serverName + "\n" + serverIP + "\n" + serverPort */
 			String command = "Content" + "\n" + InetAddress.getLocalHost().getHostAddress() + "\n" + contentPort + "\n";
-			DatagramPacket sendPacket = createSendPacket(IPAddress, REGISTER, command);
-			DatagramPacket receivePacket = implementReliability(clientSocket, sendPacket, "Registration's info");
+			DatagramPacket sendPacket = createSendPacket(IPAddress, nameServerPort, REGISTER, command);
+			DatagramPacket receivePacket = implementReliability(clientSocket, sendPacket, 
+					"Registration's info is sent to NameServer.");
 			receiveBuffer = ByteBuffer.wrap(receivePacket.getData());
 			int result = receiveBuffer.getInt();
 			String message = Charset.forName("UTF-8").decode(receiveBuffer).toString();
@@ -271,14 +272,14 @@ public class Content {
 		});
 
 		// send and simulate packet loss
-		simulatePacketLoss(clientSocket, sendPacket, message + " is sent to NameServer.");
+		simulatePacketLoss(clientSocket, sendPacket, message);
 		startTime = System.currentTimeMillis();
 		thread.start();
 		while(thread.isAlive()) {
 			if(System.currentTimeMillis() - startTime > TIMEOUT && thread.isAlive()) {
 				System.out.println("Timeout expired");
 				// send and simulate packet loss
-				simulatePacketLoss(clientSocket, sendPacket, message + " is retransmited to NameServer");
+				simulatePacketLoss(clientSocket, sendPacket, "RETRANSMIT: " + message);
 				startTime = System.currentTimeMillis();
 			}
 		}
@@ -286,7 +287,7 @@ public class Content {
 	}
 	
 	/** Create a send packet */
-	private DatagramPacket createSendPacket(InetAddress iPAddress, int typeCommand, String command) {
+	private DatagramPacket createSendPacket(InetAddress iPAddress, int port, int typeCommand, String command) {
 			byte[] sendData = new byte[BUFFER_SIZE];
 			ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
 			sendBuffer.putInt(typeCommand);
@@ -294,7 +295,7 @@ public class Content {
 			sendBuffer.flip();
 			sendData = sendBuffer.array();
 			// send the message to server
-			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, iPAddress, nameServerPort);
+			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, iPAddress, port);
 			return sendPacket;
 	}
 	

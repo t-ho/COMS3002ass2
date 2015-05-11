@@ -6,8 +6,10 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
+import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -52,10 +54,10 @@ public class Store {
 	String contentIP;
 	List<Item> items = new ArrayList<Item>();
 
-	SocketChannel bankChannel;
+	DatagramChannel bankChannel;
 	Selector bankSelector;
 
-	SocketChannel contentChannel;
+	DatagramChannel contentChannel;
 	Selector contentSelector;
 
 	int result;
@@ -80,40 +82,17 @@ public class Store {
 	private void connectBankServer() {
 		try {
 			// open socket channel
-			bankChannel = SocketChannel.open();
+			bankChannel = DatagramChannel.open();
 			// set Blocking mode to non-blocking
 			bankChannel.configureBlocking(false);
 			// set Server info
-			InetSocketAddress target = new InetSocketAddress(bankIP, bankPort);
+			SocketAddress target = new InetSocketAddress(bankIP, bankPort);
 			// open selector
 			bankSelector = Selector.open();
 			// connect to Server
 			bankChannel.connect(target);
 			// registers this channel with the given selector, returning a selection key
-			bankChannel.register(bankSelector, SelectionKey.OP_CONNECT);
-
-			while (bankSelector.select() > 0) {
-				for (SelectionKey bankKey : bankSelector.selectedKeys()) {
-					// test connectivity
-					if (bankKey.isConnectable()) {
-						SocketChannel sc = (SocketChannel) bankKey.channel();
-						// set register status to WRITE
-						sc.register(bankSelector, SelectionKey.OP_WRITE);
-						try {
-							sc.finishConnect();
-						} catch(IOException ie) {
-							System.err.print("Unable to connect with Bank\n");
-							System.exit(1);
-						}
-						System.out.println("Connect to Bank successfully");
-						break;
-					}
-				}
-				if (bankSelector.isOpen()) {
-					bankSelector.selectedKeys().clear();
-				}
-				break;
-			}
+			bankChannel.register(bankSelector, SelectionKey.OP_WRITE); 
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -123,40 +102,17 @@ public class Store {
 	private void connectContentServer() {
 		try {
 			// open socket channel
-			contentChannel = SocketChannel.open();
+			contentChannel = DatagramChannel.open();
 			// set Blocking mode to non-blocking
 			contentChannel.configureBlocking(false);
 			// set Server info
-			InetSocketAddress target = new InetSocketAddress(contentIP, contentPort);
+			SocketAddress target = new InetSocketAddress(contentIP, contentPort);
 			// open selector
 			contentSelector = Selector.open();
 			// connect to Server
 			contentChannel.connect(target);
 			// registers this channel with the given selector, returning a selection key
-			contentChannel.register(contentSelector, SelectionKey.OP_CONNECT);
-
-			while (contentSelector.select() > 0) {
-				for (SelectionKey contentKey : contentSelector.selectedKeys()) {
-					// test connectivity
-					if (contentKey.isConnectable()) {
-						SocketChannel sc = (SocketChannel) contentKey.channel();
-						// set register status to WRITE
-						sc.register(contentSelector, SelectionKey.OP_WRITE);
-						try {
-							sc.finishConnect();
-						} catch(IOException ie) {
-							System.err.print("Unable to connect with Content\n");
-							System.exit(1);
-						}
-						System.out.println("Connect to Content successfully");
-						break;
-					}
-				}
-				if (contentSelector.isOpen()) {
-					contentSelector.selectedKeys().clear();
-				}
-				break;
-			}
+			contentChannel.register(contentSelector, SelectionKey.OP_WRITE);
 		} catch (IOException e) {
 			e.printStackTrace();
 		}

@@ -152,11 +152,11 @@ public class Bank {
 							if(itemID % 2 == 1) { // itemID is odd
 								result = OK;
 								message = "";
-								//System.out.println(itemID + " " + "OK");
+								System.out.println(itemID + " " + "OK");
 							} else { // itemID is even
 								result = NOT_OK;
 								message = "";
-								//System.out.println(itemID + " " + "NOT OK");
+								System.out.println(itemID + " " + "NOT OK");
 							}
 							readBuffer.putInt(result);
 							readBuffer.put(Charset.forName("UTF-8").encode(message));

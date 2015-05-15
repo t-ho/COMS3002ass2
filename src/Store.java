@@ -37,7 +37,7 @@ public class Store {
 	public final int BUY_REQUEST = 12;
 
 	public final String NAMESERVER_IP = "127.0.0.1";
-	public final long TIMEOUT = 500;
+	public final long TIMEOUT = 1000;
 
 	int storePort = 24000; // default value
 	int nameServerPort = 21000; // default value
@@ -417,7 +417,7 @@ public class Store {
 		});
 
 		// send and simulate packet loss
-		simulatePacketLoss(clientSocket, sendPacket, message);
+		simulatePacketLoss(clientSocket, sendPacket, "  >>> " + message);
 		startTime = System.currentTimeMillis();
 		thread.start();
 		while(thread.isAlive()) {

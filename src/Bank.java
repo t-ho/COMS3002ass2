@@ -267,7 +267,7 @@ public class Bank {
 		});
 
 		// send and simulate packet loss
-		simulatePacketLoss(clientSocket, sendPacket, message);
+		simulatePacketLoss(clientSocket, sendPacket, "  >>> " + message);
 		startTime = System.currentTimeMillis();
 		thread.start();
 		while(thread.isAlive()) {
